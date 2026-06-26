@@ -72,6 +72,8 @@
     },
     {
       "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
         "chatId": "={{ $json.telegramChatId }}",
         "text": "not available",
         "additionalFields": {
@@ -1675,6 +1677,8 @@
     },
     {
       "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
         "chatId": "={{ $json.chatId }}",
         "text": "={{ $json.chunk }}",
         "additionalFields": {
@@ -1713,6 +1717,8 @@
     },
     {
       "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
         "chatId": "={{ $json.chatId }}",
         "text": "={{ $json.chunk }}",
         "additionalFields": {

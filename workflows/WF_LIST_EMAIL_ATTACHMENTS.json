@@ -1,0 +1,138 @@
+{
+  "name": "WF_LIST_EMAIL_ATTACHMENTS",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "emailNumber"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2486c285-6614-497b-a2e7-00356a4ae7ae",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst message_id = safeText(input.message_id);\nif (!message_id) { return [{ json: { __invalid:true, response:'No message_id provided. List the email first.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nreturn [{ json: { message_id, emailNumber: num(input.emailNumber, 0) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "ae02a685-a9ac-4276-8a08-a92fb877d374",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : ('https://graph.microsoft.com/v1.0/me/messages/' + encodeURIComponent($json.message_id) + '/attachments?$select=id,name,contentType,size,isInline') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "f15d2e10-4ddb-47d9-9f8c-53a810297b97",
+      "name": "01 Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0];\nconst err = httpError(item);\nif (err) { return [{ json: { status: 'failed', response: 'Tool failed: Yes\\n' + 'Tool used: WF_LIST_EMAIL_ATTACHMENTS\\n' + 'Error message: ' + (err) + '\\n' + 'Action taken: None\\n' + 'Verification status: Failed', verificationStatus: 'Failed' } }]; }\nconst rows = Array.isArray((item.json||{}).value) ? item.json.value : [];\nconst real = rows.filter(a => !a.isInline);\nif (real.length === 0) {\n  return [{ json: { status:'ok', count:0, response:'This email has no (non-inline) attachments.\\nVerification status: Passed', verificationStatus:'Passed' } }];\n}\nconst list = real.map((a, i) => ({ index:i+1, attachment_id:a.id, name:a.name, contentType:a.contentType, size:a.size, isInline:!!a.isInline }));\nconst lines = list.map(a => `${a.index}. ${a.name} (${a.contentType||'unknown'}, ${a.size||0} bytes)`);\nreturn [{ json: { status:'ok', count:list.length, attachments:list, response:`Attachments (${list.length}):\\n` + lines.join('\\n') + '\\nVerification status: Passed', verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "3deca05a-1db1-4713-a468-078c7d78d0cd",
+      "name": "02 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "02 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "7a6d0dfb-797d-40a5-97c8-6cb76dab941c",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "cd90a0fa77d640",
+  "tags": []
+}

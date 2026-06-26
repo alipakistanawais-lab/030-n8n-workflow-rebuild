@@ -1,0 +1,241 @@
+{
+  "name": "WF_EMAIL_LIST_CONTEXT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "action"
+            },
+            {
+              "name": "emailNumber"
+            },
+            {
+              "name": "requestType"
+            },
+            {
+              "name": "telegramChatId"
+            },
+            {
+              "name": "limit"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6020b91a-f1f4-4913-94c5-2554c8289cc8",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst action = (safeText(input.action) || 'list').toLowerCase();\nconst telegramChatId = safeText(input.telegramChatId) || 'default';\nconst emailNumber = num(input.emailNumber, 0);\nconst requestType = (safeText(input.requestType) || 'metadata').toLowerCase();\nlet limit = num(input.limit, 15);\nif (limit < 1) limit = 15;\nif (limit > 50) limit = 50;\nreturn [{ json: { action, telegramChatId, emailNumber, requestType, limit } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "94c96c21-3043-44fe-aae3-8c4e973e35c7",
+      "name": "00 Prepare"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "list",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "list"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "get",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "get"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "158c20c3-7d20-414b-b493-34cb74aa682b",
+      "name": "Route By Action"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ 'https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages?$top=' + $json.limit + '&$select=id,conversationId,subject,from,receivedDateTime,isRead,hasAttachments,webLink,bodyPreview&$orderby=receivedDateTime desc' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        -120
+      ],
+      "id": "0ac4058e-0238-40b2-8020-e3db4dfd14fd",
+      "name": "01 List Inbox Messages",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare').item.json;\nconst telegramChatId = prep.telegramChatId;\nconst httpItem = items[0];\nconst err = httpError(httpItem);\nif (err) {\n  return [{ json: { status: 'failed', response: 'Tool failed: Yes\\n' + 'Tool used: WF_EMAIL_LIST_CONTEXT (list)\\n' + 'Error message: ' + (err) + '\\n' + 'Action taken: None\\n' + 'Verification status: Failed', verificationStatus: 'Failed' } }];\n}\nconst data = httpItem.json || {};\nconst rows = Array.isArray(data.value) ? data.value : [];\n\n// Persist the numbered list per telegram chat id using workflow static data.\nconst store = $getWorkflowStaticData('global');\nif (!store.emailLists) store.emailLists = {};\nconst nowIso = berlinNow();\nconst list = rows.map((m, i) => ({\n  listNumber: i + 1,\n  message_id: m.id || '',\n  conversationId: m.conversationId || '',\n  subject: m.subject || '(no subject)',\n  senderName: (m.from && m.from.emailAddress && m.from.emailAddress.name) || '',\n  senderEmail: (m.from && m.from.emailAddress && m.from.emailAddress.address) || '',\n  receivedDateTime: m.receivedDateTime || '',\n  isRead: !!m.isRead,\n  hasAttachments: !!m.hasAttachments,\n  webLink: m.webLink || '',\n  bodyPreview: (m.bodyPreview || '').slice(0, 200),\n  createdAt: nowIso,\n  telegramChatId,\n}));\nstore.emailLists[telegramChatId] = { savedAt: nowIso, items: list };\n\nif (list.length === 0) {\n  return [{ json: { status: 'ok', count: 0, response: 'No emails were returned by the Inbox.\\nVerification status: Passed', verificationStatus: 'Passed' } }];\n}\n\nconst lines = list.map(e =>\n  `Email ${e.listNumber}: ${e.subject}\\n  From: ${e.senderName || e.senderEmail}\\n  Received: ${e.receivedDateTime}\\n  Read: ${e.isRead ? 'Read' : 'Unread'} | Attachments: ${e.hasAttachments ? 'Yes' : 'No'}`\n);\nreturn [{ json: {\n  status: 'ok',\n  count: list.length,\n  items: list,\n  response: `Saved numbered email list (${list.length}) for this chat.\\n\\n` + lines.join('\\n') + '\\n\\nVerification status: Passed',\n  verificationStatus: 'Passed'\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -120
+      ],
+      "id": "cc237ded-266a-4ad8-b0c1-5bef237a3b63",
+      "name": "02 Store And Format List"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare').item.json;\nconst telegramChatId = prep.telegramChatId;\nconst emailNumber = prep.emailNumber;\nconst requestType = prep.requestType;\n\nif (!emailNumber || emailNumber < 1) {\n  return [{ json: { status: 'failed', response: 'No valid email number was provided. Please tell me which email number (for example Email 2).\\nVerification status: Failed', verificationStatus: 'Failed' } }];\n}\nconst store = $getWorkflowStaticData('global');\nconst saved = store.emailLists && store.emailLists[telegramChatId];\nif (!saved || !Array.isArray(saved.items) || saved.items.length === 0) {\n  return [{ json: { status: 'expired', response: 'The saved email list expired or was never created for this chat. Please ask me to list your emails again.\\nVerification status: Failed', verificationStatus: 'Failed' } }];\n}\nconst found = saved.items.find(e => Number(e.listNumber) === Number(emailNumber));\nif (!found) {\n  return [{ json: { status: 'not_found', response: `Email number ${emailNumber} was not found in the saved list. Please list your emails again.\\nVerification status: Failed`, verificationStatus: 'Failed' } }];\n}\nreturn [{ json: {\n  status: 'ok',\n  requestType,\n  emailNumber,\n  message_id: found.message_id,\n  conversationId: found.conversationId,\n  subject: found.subject,\n  senderName: found.senderName,\n  senderEmail: found.senderEmail,\n  receivedDateTime: found.receivedDateTime,\n  isRead: found.isRead,\n  hasAttachments: found.hasAttachments,\n  webLink: found.webLink,\n  bodyPreview: found.bodyPreview,\n  response: `Resolved Email ${emailNumber} from saved memory.\\nSubject: ${found.subject}\\nFrom: ${found.senderName || found.senderEmail}\\nmessage_id: ${found.message_id}\\nAttachments: ${found.hasAttachments ? 'Yes' : 'No'}\\nUse this exact message_id for follow-up actions (requestType=${requestType}).\\nVerification status: Passed`,\n  verificationStatus: 'Passed'\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        120
+      ],
+      "id": "4603e7bd-30b6-455b-8443-00097a3c4f34",
+      "name": "03 Get Saved Email"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare": {
+      "main": [
+        [
+          {
+            "node": "Route By Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Action": {
+      "main": [
+        [
+          {
+            "node": "01 List Inbox Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "03 Get Saved Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "03 Get Saved Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 List Inbox Messages": {
+      "main": [
+        [
+          {
+            "node": "02 Store And Format List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "22bb5671-3381-4281-806c-32271a580a6f",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "48ebc2f1e9ef4e",
+  "tags": []
+}

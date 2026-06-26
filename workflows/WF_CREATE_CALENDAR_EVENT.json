@@ -1,0 +1,157 @@
+{
+  "name": "WF_CREATE_CALENDAR_EVENT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "subject"
+            },
+            {
+              "name": "attendeeEmail"
+            },
+            {
+              "name": "attendeeName"
+            },
+            {
+              "name": "startDateTime"
+            },
+            {
+              "name": "endDateTime"
+            },
+            {
+              "name": "timeZone"
+            },
+            {
+              "name": "location"
+            },
+            {
+              "name": "body"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "208aa61c-caf7-4fb7-b6b5-b349722b8b5d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nfunction pad(v){return String(v).padStart(2,'0');}\nfunction normDt(v){ const t=safeText(v); if(!t) return ''; if(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(t)) return t+':00'; if(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$/.test(t)) return t; return t.replace(/Z$/,'').replace(/[+-]\\d{2}:\\d{2}$/,'').slice(0,19); }\nfunction addMin(dt,min){ const m=normDt(dt).match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})$/); if(!m) return ''; const [,y,mo,d,h,mi,s]=m.map(Number); const dd=new Date(y,mo-1,d,h,mi,s); dd.setMinutes(dd.getMinutes()+min); return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())}T${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`; }\nconst subject = safeText(input.subject) || 'Appointment';\nconst timeZone = safeText(input.timeZone) || 'Europe/Berlin';\nconst start = normDt(input.startDateTime);\nlet end = normDt(input.endDateTime);\nif (start && !end) end = addMin(start, 30);\nif (!start) { return [{ json: { __invalid:true, response:'I need a start date and time (Europe/Berlin) to create the event. Please provide the date and time.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst attendeeEmail = safeText(input.attendeeEmail);\nconst attendeeName = safeText(input.attendeeName);\nconst ev = { subject, body:{ contentType:'HTML', content: safeText(input.body) || ('Appointment: '+subject) }, start:{ dateTime:start, timeZone }, end:{ dateTime:end, timeZone }, location:{ displayName: safeText(input.location) }, attendees: [] };\nif (attendeeEmail) ev.attendees.push({ emailAddress:{ address:attendeeEmail, name: attendeeName||attendeeEmail }, type:'required' });\nreturn [{ json: { __invalid:false, subject, start, end, timeZone, attendeeEmail, attendeeName, requestBody: JSON.stringify(ev) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "3764ddcf-4ac4-413e-b7ce-9ec98142fcc9",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : 'https://graph.microsoft.com/v1.0/me/events' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "eb7c3915-25ca-41ad-b340-4382d1f59177",
+      "name": "01 Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0]; const err = httpError(item);\nif (err) { return [{ json: { status: 'failed', response: 'Tool failed: Yes\\n' + 'Tool used: WF_CREATE_CALENDAR_EVENT\\n' + 'Error message: ' + (err) + '\\n' + 'Action taken: None\\n' + 'Verification status: Failed', verificationStatus: 'Failed' } }]; }\nconst m = item.json || {};\nreturn [{ json: { status:'ok', eventId:m.id||'', webLink:m.webLink||'', response:`Title: ${prep.subject}\\nStart: ${prep.start} ${prep.timeZone}\\nEnd: ${prep.end} ${prep.timeZone}\\nAttendees: ${prep.attendeeName||prep.attendeeEmail||'None'}\\nLink: ${m.webLink||'(open Outlook Calendar)'}\\nVerification status: Passed`, verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "1b24d25d-c8ec-4d5f-9931-62d56f91ec16",
+      "name": "02 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "02 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6ba07984-5aeb-4f06-ac76-aa12fbbafeb8",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "cfba1de85a3944",
+  "tags": []
+}

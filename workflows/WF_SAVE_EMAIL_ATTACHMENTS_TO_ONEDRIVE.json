@@ -1,0 +1,213 @@
+{
+  "name": "WF_SAVE_EMAIL_ATTACHMENTS_TO_ONEDRIVE",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "emailNumber"
+            },
+            {
+              "name": "target_folder_path"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3f0dc31e-9c79-4374-b9ed-5a66e7b5efe2",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst message_id = safeText(input.message_id);\nif (!message_id) { return [{ json: { __invalid:true, response:'No message_id provided. List the email first.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nlet folder = safeText(input.target_folder_path).replace(/\\s+\\/\\s+/g,'/').replace(/^\\/|\\/$/g,'');\nreturn [{ json: { message_id, target_folder_path: folder } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "053614b5-f98e-4ea3-96d6-c06c82129f7c",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : ('https://graph.microsoft.com/v1.0/me/messages/' + encodeURIComponent($json.message_id) + '?$expand=attachments($select=id,name,contentType,size,isInline,@microsoft.graph.downloadUrl)') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "97c8c3af-2590-47f9-b11a-37782228fa31",
+      "name": "01 Get Message With Attachments",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { __empty:true, response: prep.response, verificationStatus:'Failed' } }]; }\nconst err = httpError(items[0]);\nif (err) { return [{ json: { __empty:true, response:'Tool failed: Yes\\nTool used: WF_SAVE_EMAIL_ATTACHMENTS_TO_ONEDRIVE\\nError message: ' + err + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst m = items[0].json || {};\nconst atts = Array.isArray(m.attachments) ? m.attachments : [];\nconst files = atts.filter(a => !a.isInline && (a.contentBytes || a['@microsoft.graph.downloadUrl']));\nconst folder = prep.target_folder_path;\nconst out = [];\nfor (const a of files) {\n  // Build the OneDrive upload URL; use conflictBehavior=fail to avoid overwriting existing files.\n  const safeName = String(a.name || 'attachment').replace(/[\\\\/:*?\"<>|]/g,'_');\n  const pathPart = folder ? (folder.split('/').map(encodeURIComponent).join('/') + '/' + encodeURIComponent(safeName)) : encodeURIComponent(safeName);\n  const uploadUrl = 'https://graph.microsoft.com/v1.0/me/drive/root:/' + pathPart + ':/content?@microsoft.graph.conflictBehavior=fail';\n  const json = { upload_url: uploadUrl, name: safeName, size: a.size || 0, contentType: a.contentType || 'application/octet-stream' };\n  const item = { json };\n  if (a.contentBytes) { item.binary = { data: { data: a.contentBytes, fileName: safeName, mimeType: a.contentType || 'application/octet-stream' } }; }\n  else { json.downloadUrl = a['@microsoft.graph.downloadUrl']; }\n  out.push(item);\n}\nif (out.length === 0) { return [{ json: { __empty:true, response:'No saveable attachments were found on this email.\\nVerification status: Passed', verificationStatus:'Passed' } }]; }\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "727b743a-f56d-4615-b725-333b25e944d5",
+      "name": "02 Build Upload Items"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "PUT",
+        "url": "={{ $json.upload_url }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.contentType }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        0
+      ],
+      "id": "5fa93d49-af18-4aa7-af1a-2c4834f98326",
+      "name": "03 Upload To OneDrive",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst first = items[0] ? items[0].json : {};\nif (first && first.__empty) { return [{ json: { status: first.verificationStatus === 'Passed' ? 'ok':'failed', response: first.response, verificationStatus: first.verificationStatus } }]; }\nlet saved = 0, skipped = 0; const savedNames = []; const skippedNames = [];\nfor (const it of items) {\n  const j = it.json || {};\n  const name = (j.name) || (j.parentReference ? j.name : '') || 'attachment';\n  if (j.error) {\n    const code = (j.error.error && j.error.error.code) || '';\n    if (String(code).toLowerCase().includes('exist') || String((j.error.error&&j.error.error.message)||'').toLowerCase().includes('exist')) { skipped++; skippedNames.push(j.name||name); }\n    else { skipped++; skippedNames.push((j.name||name) + ' (error)'); }\n  } else { saved++; savedNames.push(j.name || name); }\n}\nconst lines = [];\nlines.push(`Saved: ${saved}`);\nif (savedNames.length) lines.push('  ' + savedNames.join(', '));\nlines.push(`Skipped (duplicate or error): ${skipped}`);\nif (skippedNames.length) lines.push('  ' + skippedNames.join(', '));\nreturn [{ json: { status:'ok', saved, skipped, response: 'Attachment save to OneDrive complete.\\n' + lines.join('\\n') + '\\nExisting files were not overwritten.\\nVerification status: ' + (saved>0?'Passed':'Failed'), verificationStatus: saved>0?'Passed':'Failed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "d46c218e-c3c5-41ad-8f36-d637f8e91498",
+      "name": "04 Format Save Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Get Message With Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Get Message With Attachments": {
+      "main": [
+        [
+          {
+            "node": "02 Build Upload Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 Build Upload Items": {
+      "main": [
+        [
+          {
+            "node": "03 Upload To OneDrive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 Upload To OneDrive": {
+      "main": [
+        [
+          {
+            "node": "04 Format Save Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "acb90953-204f-4a1b-ac8f-ff241464faaf",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "ba122efdfc3647",
+  "tags": []
+}

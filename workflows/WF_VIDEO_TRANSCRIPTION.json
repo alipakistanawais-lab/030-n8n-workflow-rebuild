@@ -1,0 +1,144 @@
+{
+  "name": "WF_VIDEO_TRANSCRIPTION",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "source"
+            },
+            {
+              "name": "onedrive_file_path"
+            },
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "attachment_id"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b1dbfb30-14d4-49ea-9482-6a05e9f76779",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst source = (safeText(input.source) || 'onedrive').toLowerCase();\nif (source === 'email' || source === 'attachment') {\n  const message_id = safeText(input.message_id);\n  const attachment_id = safeText(input.attachment_id);\n  if (!message_id || !attachment_id) { return [{ json: { __invalid:true, response:'To summarize a video email attachment I need the email (message_id) and attachment_id. List the attachments first.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\n  return [{ json: { source:'email', message_id, attachment_id, url: 'https://graph.microsoft.com/v1.0/me/messages/' + encodeURIComponent(message_id) + '/attachments/' + encodeURIComponent(attachment_id) + '?$select=name,size,contentType' } }];\n}\nlet path = safeText(input.onedrive_file_path).replace(/\\s+\\/\\s+/g,'/').replace(/^\\/|\\/$/g,'');\nif (!path) { return [{ json: { __invalid:true, response:'Which video file on OneDrive should I summarize? Please give the file name or path.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst encPath = path.split('/').map(encodeURIComponent).join('/');\nreturn [{ json: { source:'onedrive', path, url: 'https://graph.microsoft.com/v1.0/me/drive/root:/' + encPath + '?$select=name,size,file' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "d92f1467-d294-479b-a3af-2147d6dc3ee6",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "8c3d71cc-5d24-48c9-92ed-b77d1dfddb65",
+      "name": "01 Get File Metadata",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0]; const err = httpError(item);\nif (err) { return [{ json: { status:'failed', response:'Tool failed: Yes\\nTool used: WF_VIDEO_TRANSCRIPTION\\nError message: ' + err + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst m = item.json || {};\nconst name = m.name || prep.path || 'video';\nconst size = num(m.size, 0);\nconst LIMIT = 25 * 1024 * 1024;\nif (size > LIMIT) {\n  return [{ json: { status:'too_large', response:`File name: ${name}\\nFile size: ${(size/1048576).toFixed(1)} MB\\nThis video is over 25 MB, so it cannot be transcribed automatically. Please share a smaller clip or a text summary.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n}\n// No transcription provider is configured in this build.\nreturn [{ json: { status:'not_configured', name, size, response:`File name: ${name}\\nFile size: ${size?((size/1048576).toFixed(2)+' MB'):'unknown'}\\nVideo transcription is not configured yet.\\nNo action completed.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "0814a6c5-fe4b-4a4e-a953-8a88c45450d5",
+      "name": "02 Size Check And Transcription Status"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Get File Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Get File Metadata": {
+      "main": [
+        [
+          {
+            "node": "02 Size Check And Transcription Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c1e19b93-1f78-4b6b-8fa7-cbcbdc2a2018",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "78eac692f0a547",
+  "tags": []
+}

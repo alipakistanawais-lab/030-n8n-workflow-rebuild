@@ -1,0 +1,132 @@
+{
+  "name": "WF_SEARCH_ONEDRIVE_FOLDERS",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "query"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5e3c230f-4922-4eb1-8067-624b11e674d8",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst query = safeText(input.query);\nif (!query) { return [{ json: { __invalid:true, response:'Which folder should I search for in OneDrive?\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nreturn [{ json: { __invalid:false, query, url: \"https://graph.microsoft.com/v1.0/me/drive/root/search(q='\" + encodeURIComponent(query) + \"')?$top=20&$select=id,name,webUrl,folder,parentReference\" } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "c23e1c21-a2f4-46d4-9293-31e01eefcf95",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "d1d11f37-7a42-4a50-b79f-4aa822b8d6bc",
+      "name": "01 Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0]; const err = httpError(item);\nif (err) { return [{ json: { status: 'failed', response: 'Tool failed: Yes\\n' + 'Tool used: WF_SEARCH_ONEDRIVE_FOLDERS\\n' + 'Error message: ' + (err) + '\\n' + 'Action taken: None\\n' + 'Verification status: Failed', verificationStatus: 'Failed' } }]; }\nconst rows = (Array.isArray((item.json||{}).value)?item.json.value:[]).filter(r => r.folder);\nif (rows.length === 0) { return [{ json: { status:'ok', count:0, response:`No folders matching \"${prep.query}\" were found.\\nVerification status: Passed`, verificationStatus:'Passed' } }]; }\nconst top = rows.slice(0,5);\nconst lines = top.map((r,i) => `${i+1}. ${r.name}\\n   Path: ${(r.parentReference&&r.parentReference.path)||'/'}\\n   Link: ${r.webUrl||''}`);\nreturn [{ json: { status:'ok', count:rows.length, folders:top, response:`Folders matching \"${prep.query}\":\\n` + lines.join('\\n') + '\\nVerification status: Passed', verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "c7d4b0d4-dd14-465a-98e5-ce8cfc363fd3",
+      "name": "02 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "02 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6341d26a-8b8b-4f96-98c3-1a69a250c5b9",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "91172998550b49",
+  "tags": []
+}

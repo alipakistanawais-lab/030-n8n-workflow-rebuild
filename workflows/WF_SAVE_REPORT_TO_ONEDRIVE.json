@@ -1,0 +1,143 @@
+{
+  "name": "WF_SAVE_REPORT_TO_ONEDRIVE",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "file_name"
+            },
+            {
+              "name": "file_content"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "21504930-3d09-4672-8d48-0f165fe54b54",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nlet name = safeText(input.file_name) || ('report-' + berlinNow().slice(0,10) + '.txt');\nif (!/\\.[a-z0-9]{2,5}$/i.test(name)) name += '.txt';\nconst content = safeText(input.file_content);\nif (!content) { return [{ json: { __invalid:true, response:'There is no report text to save. What should the report contain?\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nreturn [{ json: { __invalid:false, name, content, url: 'https://graph.microsoft.com/v1.0/me/drive/root:/' + encodeURIComponent(name) + ':/content?@microsoft.graph.conflictBehavior=fail' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "2ef9e935-cc64-4047-82dc-f32c84522d15",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "PUT",
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : $json.url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $json.content }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "aebee83a-0761-413e-a201-72c0597f895b",
+      "name": "01 Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0]; const err = httpError(item);\nif (err) {\n  const lc = err.toLowerCase();\n  if (lc.includes('exist') || lc.includes('conflict') || lc.includes('409')) {\n    return [{ json: { status:'skipped', response:`A file named \"${prep.name}\" already exists. I did not overwrite it. Tell me to overwrite or use a different name.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n  }\n  return [{ json: { status: 'failed', response: 'Tool failed: Yes\\n' + 'Tool used: WF_SAVE_REPORT_TO_ONEDRIVE\\n' + 'Error message: ' + (err) + '\\n' + 'Action taken: None\\n' + 'Verification status: Failed', verificationStatus: 'Failed' } }];\n}\nconst m = item.json || {};\nreturn [{ json: { status:'ok', webUrl:m.webUrl||'', response:`Report saved to OneDrive.\\nFile: ${prep.name}\\nLink: ${m.webUrl||''}\\nVerification status: Passed`, verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "3b8d8836-2d1b-4eb0-a575-2ed9b9035b32",
+      "name": "02 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "02 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "2cbc4dea-35ed-4734-86e2-b67727518824",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "bd5758a102da42",
+  "tags": []
+}

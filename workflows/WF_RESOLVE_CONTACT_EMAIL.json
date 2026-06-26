@@ -1,0 +1,132 @@
+{
+  "name": "WF_RESOLVE_CONTACT_EMAIL",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "name"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "82d0b57d-31a2-4297-82ca-064b5350ebed",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst raw = safeText(input.name).toLowerCase();\nif (!raw) { return [{ json: { __invalid:true, response:'Which contact should I resolve?\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\n// Strict canonical mapping. Nicknames map to ONE canonical person only.\nconst known = [\n  { canonical: 'Ali Kabalan', surname: 'kabalan', keys: ['ali','ali kabalan','kabalan'] },\n  { canonical: 'Hidar Aliasghari', surname: 'aliasghari', keys: ['hidar','hider','hidar aliasghari','aliasghari'] },\n  { canonical: 'Bohdan Dyakunchak', surname: 'dyakunchak', keys: ['bohdan','bohdan dyakunchak','dyakunchak'] },\n];\nlet match = null;\nfor (const k of known) { if (k.keys.some(key => raw === key || raw.includes(key))) { match = k; break; } }\n// Build a search term: prefer canonical surname for high precision.\nconst term = match ? match.surname : raw;\nreturn [{ json: { __invalid:false, originalName: input.name, canonical: match ? match.canonical : '', surname: match ? match.surname : '', term, url: \"https://graph.microsoft.com/v1.0/me/people?$search='\" + encodeURIComponent(term) + \"'&$top=10&$select=displayName,scoredEmailAddresses\" } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "f916690a-113c-4e1d-b030-a44723f33aff",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "6afc1ad7-2c33-4891-9830-226afc8a2651",
+      "name": "01 Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst item = items[0]; const err = httpError(item);\nconst rows = Array.isArray((item.json||{}).value)?item.json.value:[];\nfunction emailOf(p){ const e=(p.scoredEmailAddresses||[])[0]; return e ? e.address : ''; }\n// Strict matching: require surname (if known) to appear in the resolved displayName.\nlet candidates = rows.filter(p => emailOf(p));\nif (prep.surname) candidates = candidates.filter(p => String(p.displayName||'').toLowerCase().includes(prep.surname));\nelse if (prep.term) candidates = candidates.filter(p => String(p.displayName||'').toLowerCase().includes(prep.term));\nif (candidates.length === 1) {\n  const p = candidates[0];\n  return [{ json: { status:'ok', name:p.displayName, email:emailOf(p), response:`Contact resolved.\\nName: ${p.displayName}\\nEmail: ${emailOf(p)}\\nVerification status: Passed`, verificationStatus:'Passed' } }];\n}\nif (candidates.length > 1) {\n  const names = candidates.slice(0,5).map(p => `- ${p.displayName} <${emailOf(p)}>`).join('\\n');\n  return [{ json: { status:'ambiguous', response:`I found multiple possible matches for \"${prep.originalName}\":\\n${names}\\nPlease tell me which one, or provide this person's email address.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n}\nreturn [{ json: { status:'not_found', response:`I could not safely resolve \"${prep.originalName}\" to an email address. Please provide this person's email address.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "ed926ee0-d12b-4bdd-a82e-2af81c38c369",
+      "name": "02 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "02 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "d4f8d505-49fd-4947-a130-590818848ff1",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "f5809128459e44",
+  "tags": []
+}

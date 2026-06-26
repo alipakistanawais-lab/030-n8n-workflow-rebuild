@@ -1,0 +1,176 @@
+{
+  "name": "WF_LIST_TODO_TASKS",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "listName"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9061f27a-c8eb-4820-9609-f0d4157ce62b",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName,wellknownListName",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        220,
+        0
+      ],
+      "id": "07542f8a-1377-404f-b187-e424077df089",
+      "name": "01 Get To Do Lists",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst want = safeText($('When Executed by Another Workflow').item.json.listName).toLowerCase();\nconst err = httpError(items[0]);\nif (err) { return [{ json: { __invalid:true, response:'Tool failed: Yes\\nTool used: WF_LIST_TODO_TASKS\\nError message: ' + err + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst lists = Array.isArray((items[0].json||{}).value)?items[0].json.value:[];\nlet chosen = null;\nif (want) chosen = lists.find(l => String(l.displayName||'').toLowerCase() === want);\nif (!chosen) chosen = lists.find(l => l.wellknownListName === 'defaultList');\nif (!chosen) chosen = lists[0];\nif (!chosen) { return [{ json: { __invalid:true, response:'No Microsoft To Do lists were found.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nreturn [{ json: { __invalid:false, listId: chosen.id, listName: chosen.displayName, url: 'https://graph.microsoft.com/v1.0/me/todo/lists/' + chosen.id + '/tasks?$top=50&$select=title,status,dueDateTime,importance' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "6a9c98fa-0389-473b-9a1b-7560d1688b5e",
+      "name": "02 Pick List"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        0
+      ],
+      "id": "79800c0a-6a6c-4eee-8685-5d354a590f8f",
+      "name": "03 Get Tasks",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst pick = $('02 Pick List').item.json;\nif (pick.__invalid) { return [{ json: { status:'failed', response: pick.response, verificationStatus:'Failed' } }]; }\nconst err = httpError(items[0]);\nif (err) { return [{ json: { status:'failed', response:'Tool failed: Yes\\nTool used: WF_LIST_TODO_TASKS\\nError message: ' + err + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst rows = Array.isArray((items[0].json||{}).value)?items[0].json.value:[];\nconst open = rows.filter(t => t.status !== 'completed');\nif (open.length === 0) { return [{ json: { status:'ok', count:0, response:`No open tasks in \"${pick.listName}\".\\nVerification status: Passed`, verificationStatus:'Passed' } }]; }\nconst lines = open.map((t,i) => `${i+1}. ${t.title}${t.dueDateTime?(' (due '+t.dueDateTime.dateTime.slice(0,10)+')'):''}`);\nreturn [{ json: { status:'ok', count:open.length, listName:pick.listName, response:`Open tasks in \"${pick.listName}\" (${open.length}):\\n` + lines.join('\\n') + '\\nVerification status: Passed', verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "677bcfb4-5930-4d62-a706-575b9dd3f07f",
+      "name": "04 Format Tasks"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "01 Get To Do Lists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Get To Do Lists": {
+      "main": [
+        [
+          {
+            "node": "02 Pick List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 Pick List": {
+      "main": [
+        [
+          {
+            "node": "03 Get Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 Get Tasks": {
+      "main": [
+        [
+          {
+            "node": "04 Format Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "32327802-6883-47e2-8a31-35cb8695e436",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "78158da4ea9d45",
+  "tags": []
+}

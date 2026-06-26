@@ -1,0 +1,330 @@
+{
+  "name": "WF_CREATE_OUTLOOK_DRAFT_WITH_ONEDRIVE_ATTACHMENT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "to"
+            },
+            {
+              "name": "subject"
+            },
+            {
+              "name": "body"
+            },
+            {
+              "name": "onedrive_file_path"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0598baea-dfd8-471b-8d33-b5fed2c946e5",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst input = items[0].json || {};\nconst to = safeText(input.to);\nconst subject = safeText(input.subject) || 'Message';\nconst body = safeText(input.body) || '';\nlet path = safeText(input.onedrive_file_path).replace(/\\s+\\/\\s+/g,'/').replace(/^\\/|\\/$/g,'');\nif (!to) { return [{ json: { __invalid:true, response:'No recipient email address was provided. Please provide the recipient email address.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nif (!path) { return [{ json: { __invalid:true, response:'No OneDrive file path was provided for the attachment.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst encPath = path.split('/').map(encodeURIComponent).join('/');\nreturn [{ json: { __invalid:false, to, subject, body, path, encPath } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "3fa082b9-0569-4bb5-b481-fd7e0a99c301",
+      "name": "00 Prepare Input"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ $json.__invalid ? 'https://graph.microsoft.com/v1.0/me' : ('https://graph.microsoft.com/v1.0/me/drive/root:/' + $json.encPath + '?$select=id,name,size,file') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "60672c47-0475-4655-a7ca-4975360c929a",
+      "name": "01 Get OneDrive File Metadata",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        },
+        "url": "={{ 'https://graph.microsoft.com/v1.0/me/drive/root:/' + $('00 Prepare Input').item.json.encPath + ':/content' }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        0
+      ],
+      "id": "eea2eef8-e02a-4633-b2cf-09ff1333e738",
+      "name": "02 Download OneDrive File",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst prep = $('00 Prepare Input').item.json;\nif (prep.__invalid) { return [{ json: { __stop:true, status:'failed', response: prep.response, verificationStatus:'Failed' } }]; }\nconst meta = $('01 Get OneDrive File Metadata').item.json || {};\nconst metaErr = httpError($('01 Get OneDrive File Metadata').item);\nif (metaErr) { return [{ json: { __stop:true, status:'failed', response:'Tool failed: Yes\\nTool used: WF_CREATE_OUTLOOK_DRAFT_WITH_ONEDRIVE_ATTACHMENT\\nError message: ' + metaErr + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst size = num(meta.size, 0);\nif (size > 3 * 1024 * 1024) {\n  return [{ json: { __stop:true, status:'too_large', response:`The OneDrive file \"${meta.name}\" is ${(size/1048576).toFixed(1)} MB. Files over 3 MB cannot be attached directly to a draft with this tool. No draft was created.\\nVerification status: Failed`, verificationStatus:'Failed' } }];\n}\nconst bin = items[0].binary && items[0].binary.data ? items[0].binary.data.data : '';\nif (!bin) { return [{ json: { __stop:true, status:'failed', response:'Could not read the OneDrive file content.\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst draft = { subject: prep.subject, body: { contentType:'Text', content: prep.body }, toRecipients:[{ emailAddress:{ address: prep.to } }] };\nreturn [{ json: { __stop:false, to:prep.to, subject:prep.subject, fileName: meta.name, contentBytes: bin, requestBody: JSON.stringify(draft) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "82d5b919-8fec-422e-a0d0-a64f56d798fc",
+      "name": "03 Build Draft Body"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $json.__stop ? 'https://graph.microsoft.com/v1.0/me' : 'https://graph.microsoft.com/v1.0/me/messages' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "713bd719-e937-47f0-97b7-7de04e5b8875",
+      "name": "04 Create Draft",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst built = $('03 Build Draft Body').item.json;\nif (built.__stop) { return [{ json: built }]; }\nconst draft = items[0].json || {};\nconst err = httpError(items[0]);\nif (err) { return [{ json: { __stop:true, status:'failed', response:'Tool failed: Yes\\nTool used: WF_CREATE_OUTLOOK_DRAFT_WITH_ONEDRIVE_ATTACHMENT\\nError message: ' + err + '\\nAction taken: None\\nVerification status: Failed', verificationStatus:'Failed' } }]; }\nconst attBody = { '@odata.type':'#microsoft.graph.fileAttachment', name: built.fileName, contentBytes: built.contentBytes };\nreturn [{ json: { __stop:false, draftId: draft.id, webLink: draft.webLink || '', to: built.to, subject: built.subject, fileName: built.fileName, attUrl: 'https://graph.microsoft.com/v1.0/me/messages/' + encodeURIComponent(draft.id) + '/attachments', requestBody: JSON.stringify(attBody) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "id": "7748948b-2dce-4b11-b152-34f94dd67fd6",
+      "name": "05 Build Attachment Body"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $json.__stop ? 'https://graph.microsoft.com/v1.0/me' : $json.attUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1540,
+        0
+      ],
+      "id": "a2ac7a1c-1755-46cc-aec2-24ced0b086ed",
+      "name": "06 Add Attachment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction safeText(value) { return String(value === undefined || value === null ? '' : value).trim(); }\nfunction num(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }\nfunction berlinNow() {\n  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  const p = {}; for (const part of f.formatToParts(new Date())) { if (part.type !== 'literal') p[part.type] = part.value; }\n  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;\n}\nfunction httpError(item) {\n  const j = item && item.json ? item.json : {};\n  if (j.error) {\n    const e = j.error.error || j.error;\n    return (e && (e.message || e.code)) ? (e.message || e.code) : 'Microsoft Graph request failed';\n  }\n  return '';\n}\n\nconst built = $('05 Build Attachment Body').item.json;\nif (built.__stop) { return [{ json: { status: built.status||'failed', response: built.response, verificationStatus: built.verificationStatus||'Failed' } }]; }\nconst err = httpError(items[0]);\nif (err) { return [{ json: { status:'failed', response:`A draft was created for ${built.to} but the attachment could not be added.\\nTool failed: Yes\\nTool used: WF_CREATE_OUTLOOK_DRAFT_WITH_ONEDRIVE_ATTACHMENT\\nError message: ${err}\\nAction taken: Draft created without attachment\\nVerification status: Failed`, verificationStatus:'Failed' } }]; }\nreturn [{ json: { status:'ok', draftId: built.draftId, webLink: built.webLink, response:`Draft created: Yes\\nRecipient: ${built.to}\\nSubject: ${built.subject}\\nAttachment: ${built.fileName}\\nDraft link: ${built.webLink||'(open Outlook Drafts)'}\\nEmail sent: No\\nVerification status: Passed`, verificationStatus:'Passed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "98297f8d-78e3-4d3e-8e38-39e979d40677",
+      "name": "07 Format Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "00 Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "01 Get OneDrive File Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 Get OneDrive File Metadata": {
+      "main": [
+        [
+          {
+            "node": "02 Download OneDrive File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 Download OneDrive File": {
+      "main": [
+        [
+          {
+            "node": "03 Build Draft Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 Build Draft Body": {
+      "main": [
+        [
+          {
+            "node": "04 Create Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 Create Draft": {
+      "main": [
+        [
+          {
+            "node": "05 Build Attachment Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 Build Attachment Body": {
+      "main": [
+        [
+          {
+            "node": "06 Add Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 Add Attachment": {
+      "main": [
+        [
+          {
+            "node": "07 Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "e71ac541-3396-456c-9f66-508ecbc387c1",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "63d10eef34934c",
+  "tags": []
+}

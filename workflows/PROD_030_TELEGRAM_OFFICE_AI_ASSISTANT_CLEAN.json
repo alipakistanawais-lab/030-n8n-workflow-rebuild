@@ -1,0 +1,2157 @@
+{
+  "name": "PROD_030_TELEGRAM_OFFICE_AI_ASSISTANT_CLEAN",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        -200
+      ],
+      "id": "6a535721-d892-4ead-9dd9-b941fc6c2f1d",
+      "name": "Telegram Trigger",
+      "webhookId": "0984b0d9-d054-482e-906b-8057ee987f3d",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "030_Telegram_Bot (SELECT AFTER IMPORT)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Normalize the Telegram update into a clean, predictable shape.\n// ACCESS CONTROL: only these Telegram chat IDs may use the bot.\n// Replace the placeholder(s) with your approved chat IDs, or set the\n// environment variable ALLOWED_TELEGRAM_CHAT_IDS=\"111,222\" to override.\nconst ALLOWED_TELEGRAM_CHAT_IDS = ['REPLACE_WITH_APPROVED_CHAT_ID'];\n\nfunction fromEnv() {\n  try {\n    const raw = $env && $env.ALLOWED_TELEGRAM_CHAT_IDS;\n    if (raw) return String(raw).split(',').map(s => s.trim()).filter(Boolean);\n  } catch (e) {}\n  return null;\n}\nconst allowed = fromEnv() || ALLOWED_TELEGRAM_CHAT_IDS;\n\nconst payload = items[0].json || {};\nconst msg = payload.message || payload.edited_message || payload.channel_post || {};\nconst chat = msg.chat || {};\nconst from = msg.from || {};\n\nconst text = msg.text || msg.caption || '';\nlet messageType = 'text';\nif (msg.document) messageType = 'document';\nelse if (msg.photo) messageType = 'photo';\nelse if (msg.video) messageType = 'video';\nelse if (msg.voice) messageType = 'voice';\nelse if (!msg.text && msg.caption) messageType = 'caption';\n\nconst telegramChatId = String(chat.id !== undefined ? chat.id : '');\nconst langCode = String(from.language_code || '').toLowerCase();\nconst languageHint = langCode.startsWith('de') ? 'de' : (langCode.startsWith('en') ? 'en' : 'auto');\n\nconst isAllowed = allowed.map(String).includes(telegramChatId);\n\nreturn [{\n  json: {\n    platform: 'telegram',\n    telegramChatId,\n    telegramUserId: String(from.id !== undefined ? from.id : ''),\n    telegramUserName: from.username || from.first_name || '',\n    telegramMessageId: String(msg.message_id !== undefined ? msg.message_id : ''),\n    chatInput: String(text || ''),\n    messageType,\n    languageHint,\n    isAllowed,\n    originalPayload: payload,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        -200
+      ],
+      "id": "f8a8d817-143e-4b67-b2e8-2417eb12fa87",
+      "name": "Telegram Input Mapper"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fbe02f55-6e66-420c-b442-3f0701a4ec9e",
+              "leftValue": "={{ $json.isAllowed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -680,
+        -200
+      ],
+      "id": "0e6010cd-04d4-4b24-9eaf-7585afd4a9ce",
+      "name": "Access Control Check"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegramChatId }}",
+        "text": "not available",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -460,
+        40
+      ],
+      "id": "ff860a5c-afd4-41fe-a8ec-6a65e1e67883",
+      "name": "Access Denied Reply",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "030_Telegram_Bot (SELECT AFTER IMPORT)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "You are the 030 Office Workflow AI Assistant for 030 Projektentwicklungen Invest GmbH.\nYou help approved staff control Microsoft 365 (Outlook, Calendar, OneDrive, Microsoft To Do) from Telegram.\n\nLANGUAGE\n- Reply in the SAME language as the latest user message. English in -> English out. German in -> German out. Follow language switches immediately.\n\nSTYLE\n- Be short, clear and professional (CEO style). No emojis. No technical/debug text. Never mention n8n, tools, workflows, JSON, or system internals to the user.\n\nGLOBAL SAFETY (never break these)\n- NEVER send email. Create Outlook DRAFTS only. Never use any Graph send operation.\n- Never delete or move emails.\n- Never overwrite OneDrive files unless the user explicitly says overwrite/replace.\n- Never invent emails, message_ids, attachment_ids, file_ids, folder_ids, dates or times.\n- Never claim success unless the tool result confirms it.\n- If a required detail is missing, ask ONE short clarification question.\n- If a tool fails, give a clean short error, not a raw dump.\n- After every completed action include \"Verification status: Passed\". After a failed action include \"Verification status: Failed\".\n\nROUTING (pick exactly one path)\n1. Email list/read/search (\"do I have new emails\", \"show unread\", \"list latest N emails\", \"summarize unread\"): call Tool - Email List And Memory with action=list. Read-only: do NOT create tasks/drafts/events/files. Return sender, subject, received time, read status, attachments yes/no and counts. If the user asks for N emails, return all N (split is handled automatically).\n2. Numbered follow-up (\"Email 2\", \"what is in Email 1\", \"Zeig mir Email 3\"): call Tool - Email List And Memory with action=get and the exact email number to get the saved message_id. Then for content use Tool - Get Email Content; for attachments use Tool - List Email Attachments. Never re-search latest emails for a numbered follow-up. If the list is missing, ask the user to list emails again.\n3. Attachments: list with Tool - List Email Attachments; send with Tool - Send Attachment To Telegram; save with Tool - Save Email Attachments To OneDrive; save today's unread with Tool - Save Today Unread Attachments. Always use the real message_id and attachment_id.\n4. Drafts: plain -> Tool - Create Outlook Draft; reply -> Tool - Create Reply Draft; reply-all -> Tool - Create Reply All Draft; with a file -> Tool - Create Draft With OneDrive Attachment (only when the user explicitly mentions a file/attachment/PDF/Datei/Anhang). Always draft only, never send. Resolve recipient name to email first.\n5. Calendar: create -> Tool - Create Calendar Event (Europe/Berlin; require date AND time, otherwise ask); read/summarize -> Tool - Search Calendar Events; check duplicates/conflicts -> Tool - Check Calendar Conflicts before creating when a clash is possible.\n6. OneDrive: file search -> Tool - Search OneDrive Files; folder search -> Tool - Search OneDrive Folders; main/root folder -> Tool - List OneDrive Root Files; exact folder -> Tool - List Files In Exact Folder; save report to root -> Tool - Save Report To OneDrive; save report to a folder -> Tool - Save Report To Selected Folder. Always show the real webUrl link.\n7. To Do: list -> Tool - List To Do Tasks (read-only); create -> Tool - Create To Do Task (only when clearly asked).\n8. Contacts: resolve names with Tool - Resolve Contact Email before drafting/inviting. Ali, Hidar and Bohdan are different people and must never be mixed. If a contact cannot be safely resolved, ask for the email address.\n9. Video: use Tool - Video Transcription. Videos over 25MB fail gracefully. If transcription is not configured, say so plainly.\n10. Vague/garbage input (\"asdkjhaskjdh\", \"do the thing\", unclear command): do NOT call any tool and do NOT take any action. Ask one short clarification question.\n\nCONTACT NOTES\n- Ali = Ali Kabalan. Hidar = Hidar Aliasghari. Bohdan = Bohdan Dyakunchak.\n\nAlways end action replies with the verification status line.\n",
+          "maxIterations": 12
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -360,
+        -360
+      ],
+      "id": "9cc0d65f-c41c-41c5-bf9f-7b6c3a483cbd",
+      "name": "AI Agent Command Center",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -560,
+        -120
+      ],
+      "id": "59261411-6dd5-4704-802e-8fd670b5e717",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "SYzX1DYo7yj2AaNa",
+          "name": "OpenAI - 030 Office Workflow"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}",
+        "contextWindowLength": 12
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -400,
+        -120
+      ],
+      "id": "4bd6e663-f839-4c38-af01-58c4c33588de",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "description": "List the latest Inbox emails AND save them as a numbered list per chat, or recall a previously listed email by its number. Use action='list' for 'do I have new emails / show unread / list latest N emails'. Use action='get' for follow-ups like 'Email 2', 'what is in Email 1', to retrieve the exact saved message_id. Never search latest emails again for a numbered follow-up.",
+        "workflowId": {
+          "__rl": true,
+          "value": "48ebc2f1e9ef4e",
+          "mode": "list",
+          "cachedResultName": "WF_EMAIL_LIST_CONTEXT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "action": "={{ $fromAI('action', \"Either 'list' to fetch and save latest inbox emails, or 'get' to recall a previously listed email by number\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"The email number the user referenced for a follow-up, for example 2 for 'Email 2'. Leave empty for action=list. Never invent 0.\", 'string') }}",
+            "requestType": "={{ $fromAI('request_type', \"For action=get: content, attachments, draft_reply, or metadata\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}",
+            "limit": "={{ $fromAI('limit', \"How many emails to list, default 15. Use the number the user requested, e.g. 25\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "requestType",
+              "displayName": "requestType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "limit",
+              "displayName": "limit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        100
+      ],
+      "id": "aa6f9008-1003-49cd-a1c0-cae9eae25cf6",
+      "name": "Tool - Email List And Memory"
+    },
+    {
+      "parameters": {
+        "description": "Fetch the full content of one email by its exact Outlook message_id. First resolve the message_id using Tool - Email List And Memory (action=get).",
+        "workflowId": {
+          "__rl": true,
+          "value": "e346cefb1e8043",
+          "mode": "list",
+          "cachedResultName": "WF_GET_EMAIL_CONTENT_BY_MESSAGE_ID"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id from the saved email memory\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"The email number the user referenced\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        100
+      ],
+      "id": "41e88de5-14da-4754-9554-594b3b7087e0",
+      "name": "Tool - Get Email Content"
+    },
+    {
+      "parameters": {
+        "description": "List the real attachments (name, content type, size, attachment_id) of one email by its exact message_id. Resolve message_id first via the email memory tool.",
+        "workflowId": {
+          "__rl": true,
+          "value": "cd90a0fa77d640",
+          "mode": "list",
+          "cachedResultName": "WF_LIST_EMAIL_ATTACHMENTS"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"Email number the user referenced\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        100
+      ],
+      "id": "dbd8d118-1906-4322-983c-ea5899c085d2",
+      "name": "Tool - List Email Attachments"
+    },
+    {
+      "parameters": {
+        "description": "Download a real Outlook attachment and send it to the user in Telegram. Use only after listing attachments to get the exact attachment_id. Large files are handled gracefully.",
+        "workflowId": {
+          "__rl": true,
+          "value": "8b221a3d6ebf41",
+          "mode": "list",
+          "cachedResultName": "WF_ATTACHMENT_SEND_TO_TELEGRAM"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id\", 'string') }}",
+            "attachment_id": "={{ $fromAI('attachment_id', \"Exact Outlook attachment_id from the attachment listing\", 'string') }}",
+            "file_name": "={{ $fromAI('file_name', \"Attachment file name\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "attachment_id",
+              "displayName": "attachment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        100
+      ],
+      "id": "db2c81b2-6059-4fe6-9a88-2982c391a5bb",
+      "name": "Tool - Send Attachment To Telegram"
+    },
+    {
+      "parameters": {
+        "description": "Save all real attachments from one email to OneDrive. Skips duplicates and never overwrites. Resolve message_id first.",
+        "workflowId": {
+          "__rl": true,
+          "value": "ba122efdfc3647",
+          "mode": "list",
+          "cachedResultName": "WF_SAVE_EMAIL_ATTACHMENTS_TO_ONEDRIVE"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"Email number the user referenced\", 'string') }}",
+            "target_folder_path": "={{ $fromAI('target_folder_path', \"OneDrive folder path to save into; leave empty for OneDrive root\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "target_folder_path",
+              "displayName": "target_folder_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        100
+      ],
+      "id": "2567cf16-6c4d-450e-ba5a-bde3dc0bbf4b",
+      "name": "Tool - Save Email Attachments To OneDrive"
+    },
+    {
+      "parameters": {
+        "description": "Save all attachments from today's UNREAD Inbox emails to OneDrive root. Uses Europe/Berlin for 'today'. Skips duplicates.",
+        "workflowId": {
+          "__rl": true,
+          "value": "54358e59d2ef4c",
+          "mode": "list",
+          "cachedResultName": "WF_SAVE_TODAY_UNREAD_ATTACHMENTS_TO_ONEDRIVE_ROOT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        100
+      ],
+      "id": "b0140f28-b3a8-4210-be47-5b2cd1aa1c45",
+      "name": "Tool - Save Today Unread Attachments"
+    },
+    {
+      "parameters": {
+        "description": "Create a plain Outlook DRAFT (never sends). Use when the user asks to email a person with a topic and no attachment. Resolve the contact email first if only a name is given.",
+        "workflowId": {
+          "__rl": true,
+          "value": "6b0b983c018a4e",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_OUTLOOK_DRAFT_TEXT_ONLY"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $fromAI('to', \"Recipient email address (resolve from contact name first)\", 'string') }}",
+            "subject": "={{ $fromAI('subject', \"Short professional subject line\", 'string') }}",
+            "body": "={{ $fromAI('body', \"Professional email body in the user's language\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        300
+      ],
+      "id": "afd06aa6-63d9-452e-929a-2de6380c63e8",
+      "name": "Tool - Create Outlook Draft"
+    },
+    {
+      "parameters": {
+        "description": "Create an Outlook reply DRAFT to a specific email (never sends). Resolve the message_id from email memory first.",
+        "workflowId": {
+          "__rl": true,
+          "value": "b07a78b2fb0d45",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_OUTLOOK_REPLY_DRAFT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id of the email being replied to\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"Email number the user referenced\", 'string') }}",
+            "replyBody": "={{ $fromAI('reply_body', \"The reply text in the user's language\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "replyBody",
+              "displayName": "replyBody",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        300
+      ],
+      "id": "2e5fd16a-4afb-4e6d-891b-f93de9b0b8e3",
+      "name": "Tool - Create Reply Draft"
+    },
+    {
+      "parameters": {
+        "description": "Create an Outlook reply-all DRAFT (never sends) including CC recipients. Resolve the message_id first.",
+        "workflowId": {
+          "__rl": true,
+          "value": "d92640a635bb4c",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_REPLY_ALL_DRAFT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $fromAI('message_id', \"Exact Outlook message_id\", 'string') }}",
+            "emailNumber": "={{ $fromAI('email_number', \"Email number the user referenced\", 'string') }}",
+            "replyBody": "={{ $fromAI('reply_body', \"The reply text\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "emailNumber",
+              "displayName": "emailNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "replyBody",
+              "displayName": "replyBody",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        300
+      ],
+      "id": "ab4650ba-1f9c-41e0-8d47-6cbcdc642c62",
+      "name": "Tool - Create Reply All Draft"
+    },
+    {
+      "parameters": {
+        "description": "Create an Outlook DRAFT with a OneDrive file attached (never sends). Use ONLY when the user explicitly asks for a file/attachment/PDF/document/Datei/Anhang. Find the file path via OneDrive search first if needed.",
+        "workflowId": {
+          "__rl": true,
+          "value": "63d10eef34934c",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_OUTLOOK_DRAFT_WITH_ONEDRIVE_ATTACHMENT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $fromAI('to', \"Recipient email address\", 'string') }}",
+            "subject": "={{ $fromAI('subject', \"Subject line\", 'string') }}",
+            "body": "={{ $fromAI('body', \"Email body\", 'string') }}",
+            "onedrive_file_path": "={{ $fromAI('onedrive_file_path', \"Exact OneDrive file path of the file to attach\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "onedrive_file_path",
+              "displayName": "onedrive_file_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        300
+      ],
+      "id": "89c930ba-d441-4e59-bea5-cff3a40b1268",
+      "name": "Tool - Create Draft With OneDrive Attachment"
+    },
+    {
+      "parameters": {
+        "description": "Create a calendar event (Europe/Berlin). Requires a start date and time. Ask for missing date/time. Resolve attendee email from name first. Check conflicts before creating when appropriate.",
+        "workflowId": {
+          "__rl": true,
+          "value": "cfba1de85a3944",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_CALENDAR_EVENT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "subject": "={{ $fromAI('subject', \"Short event title\", 'string') }}",
+            "attendeeEmail": "={{ $fromAI('attendee_email', \"Attendee email address, empty if no attendees\", 'string') }}",
+            "attendeeName": "={{ $fromAI('attendee_name', \"Attendee display name, empty if none\", 'string') }}",
+            "startDateTime": "={{ $fromAI('start_datetime', \"Start date and time, format YYYY-MM-DDTHH:mm:ss in Europe/Berlin local time\", 'string') }}",
+            "endDateTime": "={{ $fromAI('end_datetime', \"End date and time, same format; leave empty for a default 30 minute duration\", 'string') }}",
+            "timeZone": "={{ $fromAI('time_zone', \"Time zone, default Europe/Berlin\", 'string') }}",
+            "location": "={{ $fromAI('location', \"Optional location\", 'string') }}",
+            "body": "={{ $fromAI('event_body', \"Optional event description\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "attendeeEmail",
+              "displayName": "attendeeEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "attendeeName",
+              "displayName": "attendeeName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDateTime",
+              "displayName": "startDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDateTime",
+              "displayName": "endDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        300
+      ],
+      "id": "a878b8fa-6912-46e2-adaa-148744d09c16",
+      "name": "Tool - Create Calendar Event"
+    },
+    {
+      "parameters": {
+        "description": "Read/list calendar events between a start and end datetime (Europe/Berlin). Use for 'check my calendar', 'summarize my meetings', 'today/tomorrow appointments'. Never creates events.",
+        "workflowId": {
+          "__rl": true,
+          "value": "72fac427402b45",
+          "mode": "list",
+          "cachedResultName": "WF_SEARCH_CALENDAR_EVENTS"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "startDateTime": "={{ $fromAI('start_datetime', \"Window start, YYYY-MM-DDTHH:mm:ss Europe/Berlin. Empty defaults to start of today.\", 'string') }}",
+            "endDateTime": "={{ $fromAI('end_datetime', \"Window end, same format. Empty defaults to end of today.\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "startDateTime",
+              "displayName": "startDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDateTime",
+              "displayName": "endDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        300
+      ],
+      "id": "6c3181e5-14f7-454a-9bec-ed9845c3d9aa",
+      "name": "Tool - Search Calendar Events"
+    },
+    {
+      "parameters": {
+        "description": "Check for duplicate or conflicting calendar events before creating one. Duplicate = same title, time and attendee. Conflict = overlapping time, different title/attendee.",
+        "workflowId": {
+          "__rl": true,
+          "value": "8f308544bd334d",
+          "mode": "list",
+          "cachedResultName": "WF_CHECK_CALENDAR_CONFLICTS"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "subject": "={{ $fromAI('subject', \"Proposed event title\", 'string') }}",
+            "startDateTime": "={{ $fromAI('start_datetime', \"Proposed start, YYYY-MM-DDTHH:mm:ss Europe/Berlin\", 'string') }}",
+            "endDateTime": "={{ $fromAI('end_datetime', \"Proposed end, same format\", 'string') }}",
+            "attendeeEmail": "={{ $fromAI('attendee_email', \"Proposed attendee email, empty if none\", 'string') }}",
+            "timeZone": "={{ $fromAI('time_zone', \"Time zone, default Europe/Berlin\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "startDateTime",
+              "displayName": "startDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "endDateTime",
+              "displayName": "endDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "attendeeEmail",
+              "displayName": "attendeeEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeZone",
+              "displayName": "timeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        500
+      ],
+      "id": "ce01b29b-182d-41df-940a-41976cb1e72a",
+      "name": "Tool - Check Calendar Conflicts"
+    },
+    {
+      "parameters": {
+        "description": "Search OneDrive for files by name/keyword. Returns top 3 with real webUrl links and asks which one if many match.",
+        "workflowId": {
+          "__rl": true,
+          "value": "b45272dd5f894c",
+          "mode": "list",
+          "cachedResultName": "WF_SEARCH_ONEDRIVE_FILES"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "query": "={{ $fromAI('query', \"File name or keyword to search for\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        500
+      ],
+      "id": "83912910-16af-4003-96ea-6c9f9db42577",
+      "name": "Tool - Search OneDrive Files"
+    },
+    {
+      "parameters": {
+        "description": "Search OneDrive for folders by name/keyword. Returns matching folders with real links.",
+        "workflowId": {
+          "__rl": true,
+          "value": "91172998550b49",
+          "mode": "list",
+          "cachedResultName": "WF_SEARCH_ONEDRIVE_FOLDERS"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "query": "={{ $fromAI('query', \"Folder name or keyword to search for\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "query",
+              "displayName": "query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        500
+      ],
+      "id": "26ec8d58-e7bd-4150-bb1d-9123ec3a341c",
+      "name": "Tool - Search OneDrive Folders"
+    },
+    {
+      "parameters": {
+        "description": "List the files and folders in the OneDrive main (root) folder. Use for 'list files in my main folder'.",
+        "workflowId": {
+          "__rl": true,
+          "value": "4e1655ca69ef48",
+          "mode": "list",
+          "cachedResultName": "WF_LIST_ONEDRIVE_ROOT_FILES"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "limit": "={{ $fromAI('limit', \"Max items to list, default 25\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "limit",
+              "displayName": "limit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        500
+      ],
+      "id": "e6c7c2c1-f645-4144-a316-9b4450763302",
+      "name": "Tool - List OneDrive Root Files"
+    },
+    {
+      "parameters": {
+        "description": "List files inside an EXACT OneDrive folder by its path. Use for 'list latest N files inside <folder>'. Do not use generic search for exact folder listing.",
+        "workflowId": {
+          "__rl": true,
+          "value": "ed5721f88ae54f",
+          "mode": "list",
+          "cachedResultName": "WF_LIST_FILES_IN_EXACT_ONEDRIVE_FOLDER"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "folderPath": "={{ $fromAI('folder_path', \"Exact OneDrive folder path\", 'string') }}",
+            "limit": "={{ $fromAI('limit', \"Max items, default 25\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "folderPath",
+              "displayName": "folderPath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "limit",
+              "displayName": "limit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        500
+      ],
+      "id": "c9ddd3cf-483b-4d37-b093-d4b7f3bfa73a",
+      "name": "Tool - List Files In Exact Folder"
+    },
+    {
+      "parameters": {
+        "description": "Save a text report to the OneDrive root. Never overwrites existing files. Use for 'save this as a report in OneDrive: <text>'.",
+        "workflowId": {
+          "__rl": true,
+          "value": "bd5758a102da42",
+          "mode": "list",
+          "cachedResultName": "WF_SAVE_REPORT_TO_ONEDRIVE"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "file_name": "={{ $fromAI('file_name', \"Safe file name ending with .txt\", 'string') }}",
+            "file_content": "={{ $fromAI('file_content', \"Full report text to save\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_content",
+              "displayName": "file_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        500
+      ],
+      "id": "36f1ad94-77ec-42bb-9f63-bcceb96f3e66",
+      "name": "Tool - Save Report To OneDrive"
+    },
+    {
+      "parameters": {
+        "description": "Save a text report into a specific OneDrive folder by path. Never overwrites existing files.",
+        "workflowId": {
+          "__rl": true,
+          "value": "637f62d7b24943",
+          "mode": "list",
+          "cachedResultName": "WF_SAVE_REPORT_TO_SELECTED_ONEDRIVE_FOLDER"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "folder_path": "={{ $fromAI('folder_path', \"Exact OneDrive folder path\", 'string') }}",
+            "file_name": "={{ $fromAI('file_name', \"Safe file name ending with .txt\", 'string') }}",
+            "file_content": "={{ $fromAI('file_content', \"Full report text\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "folder_path",
+              "displayName": "folder_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_name",
+              "displayName": "file_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "file_content",
+              "displayName": "file_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        700
+      ],
+      "id": "1b1cd112-f835-46d9-b1d9-97746d5c2a65",
+      "name": "Tool - Save Report To Selected Folder"
+    },
+    {
+      "parameters": {
+        "description": "List open Microsoft To Do tasks. Read-only. Use for 'what is on my to-do list'.",
+        "workflowId": {
+          "__rl": true,
+          "value": "78158da4ea9d45",
+          "mode": "list",
+          "cachedResultName": "WF_LIST_TODO_TASKS"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "listName": "={{ $fromAI('list_name', \"Optional To Do list name, empty for the default list\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "listName",
+              "displayName": "listName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        700
+      ],
+      "id": "59b00301-2cf0-4439-b3a1-20910605d470",
+      "name": "Tool - List To Do Tasks"
+    },
+    {
+      "parameters": {
+        "description": "Create a Microsoft To Do task. Use only when the user clearly asks to add a task. Natural language due dates use Europe/Berlin.",
+        "workflowId": {
+          "__rl": true,
+          "value": "50483107b2d948",
+          "mode": "list",
+          "cachedResultName": "WF_CREATE_TODO_TASK"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $fromAI('title', \"Short clear task title\", 'string') }}",
+            "dueDateTime": "={{ $fromAI('due_datetime', \"Due date as YYYY-MM-DD or full ISO datetime in Europe/Berlin; empty if none\", 'string') }}",
+            "listName": "={{ $fromAI('list_name', \"Optional To Do list name\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "dueDateTime",
+              "displayName": "dueDateTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "listName",
+              "displayName": "listName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        700
+      ],
+      "id": "ea5b2568-bed3-45c4-966b-e75eb3dbed64",
+      "name": "Tool - Create To Do Task"
+    },
+    {
+      "parameters": {
+        "description": "Resolve a contact name to an email address from Outlook contacts/people. Strict: never mix Ali, Hidar and Bohdan. If it cannot be safely resolved, it asks for the email address. Never invent emails.",
+        "workflowId": {
+          "__rl": true,
+          "value": "f5809128459e44",
+          "mode": "list",
+          "cachedResultName": "WF_RESOLVE_CONTACT_EMAIL"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $fromAI('name', \"The contact name to resolve\", 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        700
+      ],
+      "id": "14542dff-065e-4945-8e80-cedfcb81dbd3",
+      "name": "Tool - Resolve Contact Email"
+    },
+    {
+      "parameters": {
+        "description": "Summarize/transcribe a video from OneDrive or an email attachment. Checks file size first; videos over 25MB fail gracefully. Returns a clear message if transcription is not configured.",
+        "workflowId": {
+          "__rl": true,
+          "value": "78eac692f0a547",
+          "mode": "list",
+          "cachedResultName": "WF_VIDEO_TRANSCRIPTION"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "={{ $fromAI('source', \"'onedrive' or 'email'\", 'string') }}",
+            "onedrive_file_path": "={{ $fromAI('onedrive_file_path', \"OneDrive video file path when source=onedrive\", 'string') }}",
+            "message_id": "={{ $fromAI('message_id', \"Outlook message_id when source=email\", 'string') }}",
+            "attachment_id": "={{ $fromAI('attachment_id', \"Outlook attachment_id when source=email\", 'string') }}",
+            "telegramChatId": "={{ $('Telegram Input Mapper').item.json.telegramChatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "onedrive_file_path",
+              "displayName": "onedrive_file_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "attachment_id",
+              "displayName": "attachment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "telegramChatId",
+              "displayName": "telegramChatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        700
+      ],
+      "id": "8fe5d195-953f-4201-a8f8-626ba5834e0d",
+      "name": "Tool - Video Transcription"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Clean the AI agent output before sending it to Telegram.\nconst j = items[0].json || {};\nlet text = j.output;\nif (text === undefined || text === null) text = j.finalReply || j.text || '';\ntext = String(text);\n\n// 1. Remove accidental leading equals signs (the double-equals expression bug class).\ntext = text.replace(/^\\s*=+\\s*/, '');\n// 2. Remove literal undefined/null tokens.\ntext = text.replace(/\\b(undefined|null)\\b/g, '').replace(/[ \\t]{2,}/g, ' ');\n// 3. Remove any leaked n8n branding / attribution.\ntext = text.replace(/this message was sent automatically with n8n.*/gi, '');\ntext = text.replace(/sent (?:automatically )?(?:with|via|using) n8n/gi, '');\ntext = text.replace(/\\bn8n\\b/gi, '');\n// 4. Strip obvious debug JSON wrappers if the whole message is JSON.\nconst trimmed = text.trim();\nif ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {\n  try { const parsed = JSON.parse(trimmed); if (parsed && (parsed.response || parsed.output)) text = String(parsed.response || parsed.output); } catch (e) {}\n}\n// 5. Collapse excessive blank lines.\ntext = text.replace(/\\n{3,}/g, '\\n\\n').trim();\nif (!text) text = 'I could not produce a reply. Please rephrase your request.';\n\nconst chatId = $('Telegram Input Mapper').item.json.telegramChatId;\nreturn [{ json: { finalReply: text, chatId, telegramChatId: chatId } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        -360
+      ],
+      "id": "3df7be4f-3be9-4710-a45f-18e265246cd7",
+      "name": "Clean Final Reply Formatter"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Split long replies into Telegram-safe chunks (max ~4000 chars),\n// never cutting a numbered list line in the middle.\nconst MAX = 3900;\nconst j = items[0].json || {};\nconst chatId = j.chatId || j.telegramChatId;\nconst text = String(j.finalReply || '');\n\nfunction flush(buf, out) { if (buf.trim().length) out.push(buf.replace(/\\n+$/,'')); }\n\nconst lines = text.split('\\n');\nconst chunks = [];\nlet buf = '';\nfor (const line of lines) {\n  if ((buf + line + '\\n').length > MAX) {\n    if (buf.trim().length) { flush(buf, chunks); buf = ''; }\n    if ((line + '\\n').length > MAX) {\n      // Hard-wrap a single very long line on word boundaries.\n      let rest = line;\n      while (rest.length > MAX) {\n        let cut = rest.lastIndexOf(' ', MAX);\n        if (cut < MAX * 0.6) cut = MAX;\n        chunks.push(rest.slice(0, cut));\n        rest = rest.slice(cut).trimStart();\n      }\n      buf = rest + '\\n';\n      continue;\n    }\n  }\n  buf += line + '\\n';\n}\nflush(buf, chunks);\nif (chunks.length === 0) chunks.push(text || ' ');\n\nreturn chunks.map((chunk, idx) => ({ json: { chunk, chatId, part: idx + 1, totalParts: chunks.length } }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -360
+      ],
+      "id": "3b8418fa-1443-4f2c-af21-37a2dff93543",
+      "name": "Telegram Long Reply Splitter"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.chunk }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        620,
+        -360
+      ],
+      "id": "83809555-ad07-48d8-aa7e-44ddda5c5ea0",
+      "name": "Telegram Reply",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "030_Telegram_Bot (SELECT AFTER IMPORT)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Build a clean, user-friendly error message (no raw stack dumps).\nconst chatId = $('Telegram Input Mapper').item.json.telegramChatId;\nlet msg = 'Something went wrong while processing your request.';\ntry {\n  const j = items[0].json || {};\n  const e = j.error || (j.json && j.json.error);\n  if (e && (e.message || e.description)) msg = String(e.message || e.description);\n} catch (err) {}\nmsg = msg.replace(/\\bn8n\\b/gi, '').trim();\nconst finalReply = 'Tool failed: Yes\\n' +\n  'Error message: ' + msg + '\\n' +\n  'Action taken: None\\n' +\n  'Verification status: Failed';\nreturn [{ json: { finalReply, chatId, chunk: finalReply } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        0
+      ],
+      "id": "6e5ff746-c6c5-492d-b5f8-e657e6dd27b0",
+      "name": "Error Handler"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.chunk }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        0
+      ],
+      "id": "b92921bc-26cc-41f6-8b56-23e235c8816d",
+      "name": "Telegram Error Reply",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CRED",
+          "name": "030_Telegram_Bot (SELECT AFTER IMPORT)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Lightweight execution logger. Records a compact line per delivered reply.\nconst j = items[0].json || {};\nconsole.log('[030-AI-ASSISTANT]', JSON.stringify({\n  ts: new Date().toISOString(),\n  chatId: j.chatId || j.telegramChatId || '',\n  part: j.part || 1,\n  totalParts: j.totalParts || 1,\n}));\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        -200
+      ],
+      "id": "6232772f-dbcb-4207-8b35-39b119d3cade",
+      "name": "Execution Logger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Telegram Input Mapper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Input Mapper": {
+      "main": [
+        [
+          {
+            "node": "Access Control Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Access Control Check": {
+      "main": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Access Denied Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent Command Center": {
+      "main": [
+        [
+          {
+            "node": "Clean Final Reply Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Final Reply Formatter": {
+      "main": [
+        [
+          {
+            "node": "Telegram Long Reply Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Long Reply Splitter": {
+      "main": [
+        [
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Reply": {
+      "main": [
+        [
+          {
+            "node": "Execution Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Telegram Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Error Reply": {
+      "main": [
+        [
+          {
+            "node": "Execution Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Email List And Memory": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Get Email Content": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - List Email Attachments": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Send Attachment To Telegram": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Save Email Attachments To OneDrive": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Save Today Unread Attachments": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create Outlook Draft": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create Reply Draft": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create Reply All Draft": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create Draft With OneDrive Attachment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create Calendar Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Search Calendar Events": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Check Calendar Conflicts": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Search OneDrive Files": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Search OneDrive Folders": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - List OneDrive Root Files": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - List Files In Exact Folder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Save Report To OneDrive": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Save Report To Selected Folder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - List To Do Tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Create To Do Task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Resolve Contact Email": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - Video Transcription": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent Command Center",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "5c2ac544-fd03-4418-9d69-ffa867b3531a",
+  "meta": {
+    "instanceId": "030officeworkflowaiassistantcleanbuild0000000000000000000000"
+  },
+  "nodeGroups": [],
+  "id": "920e28b9f8ca41",
+  "tags": []
+}

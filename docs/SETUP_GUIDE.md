@@ -54,6 +54,24 @@ use @userinfobot. You can also set an environment variable instead of editing th
 ALLOWED_TELEGRAM_CHAT_IDS=111111111,222222222
 ```
 
+### How to capture the real chat ID after the first test
+After the first Telegram test, open the latest n8n execution, open the **Telegram Input Mapper**
+node, and read its output. It now includes a safe `accessDebug` object (shown only in n8n
+execution data, never sent to Telegram):
+
+```json
+"accessDebug": { "telegramChatId": "8818065355", "telegramUserId": "8818065355", "allowedIdsCount": 1 }
+```
+
+Copy the `telegramChatId` value and paste it into `ALLOWED_TELEGRAM_CHAT_IDS` in the
+`Telegram Input Mapper` node (or into the `ALLOWED_TELEGRAM_CHAT_IDS` env var), then test again.
+The approved account should now get a normal AI reply; everyone else still gets `not available`.
+
+> The current build ships with the approved CEO/company chat ID `8818065355` already in the list.
+> Add more approved IDs as additional strings in the array.
+> The `accessDebug` field is a temporary diagnostic — you may remove it from the mapper once access
+> is confirmed working.
+
 ## 4. Microsoft Graph permissions
 Ensure the generic OAuth2 credential has these delegated scopes consented in Entra ID:
 `Mail.ReadWrite`, `Mail.Read`, `Calendars.ReadWrite`, `Files.ReadWrite`, `Tasks.ReadWrite`,

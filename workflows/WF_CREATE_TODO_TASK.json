@@ -44,7 +44,7 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "oAuth2Api",
         "options": {},
-        "url": "https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName,wellknownListName",
+        "url": "https://graph.microsoft.com/v1.0/me/todo/lists",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

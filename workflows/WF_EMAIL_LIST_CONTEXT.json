@@ -1,0 +1,221 @@
+{
+  "name": "WF_EMAIL_LIST_CONTEXT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "action"
+            },
+            {
+              "name": "emailNumber"
+            },
+            {
+              "name": "requestType"
+            },
+            {
+              "name": "telegramChatId"
+            },
+            {
+              "name": "limit"
+            },
+            {
+              "name": "query"
+            },
+            {
+              "name": "onlyUnread"
+            },
+            {
+              "name": "todayOnly"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "71abf883-f3b5-5e5b-bbae-3f99ed2d23cb",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json || {};\nconst action = String(input.action || 'list').toLowerCase();\nconst limit = Math.min(Math.max(parseInt(input.limit || input.count || 10, 10) || 10, 1), 25);\nconst telegramChatId = String(input.telegramChatId || input.chatId || 'unknown');\nconst requestType = String(input.requestType || 'metadata').toLowerCase();\nconst emailNumber = Number(input.emailNumber || input.number || 0);\nconst query = String(input.query || input.search || '').trim();\nconst onlyUnread = input.onlyUnread !== false;\nconst todayOnly = Boolean(input.todayOnly || /today|heute/i.test(String(input.requestType || input.query || '')));\nfunction berlinDateParts(date) {\n  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);\n  const o = Object.fromEntries(parts.map(p => [p.type, p.value]));\n  return `${o.year}-${o.month}-${o.day}`;\n}\nfunction berlinOffset(date) {\n  const part = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Berlin', timeZoneName: 'shortOffset' }).formatToParts(date).find(p => p.type === 'timeZoneName');\n  const m = String(part?.value || 'GMT+1').match(/GMT([+-])(\\d{1,2})(?::(\\d{2}))?/);\n  if (!m) return '+01:00';\n  return `${m[1]}${m[2].padStart(2,'0')}:${(m[3] || '00').padStart(2,'0')}`;\n}\nlet filters = [];\nif (onlyUnread) filters.push('isRead eq false');\nif (todayOnly) {\n  const d = new Date();\n  const ymd = berlinDateParts(d);\n  const off = berlinOffset(d);\n  filters.push(`receivedDateTime ge ${ymd}T00:00:00${off}`);\n  filters.push(`receivedDateTime le ${ymd}T23:59:59${off}`);\n}\nlet url = `https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages?$top=${limit}&$select=id,conversationId,subject,from,receivedDateTime,isRead,hasAttachments,webLink,bodyPreview&$orderby=receivedDateTime%20desc`;\nif (filters.length) url += `&$filter=${encodeURIComponent(filters.join(' and '))}`;\nif (query) url = `https://graph.microsoft.com/v1.0/me/messages?$top=${limit}&$search=${encodeURIComponent('\"' + query.replace(/\"/g, '') + '\"')}&$select=id,conversationId,subject,from,receivedDateTime,isRead,hasAttachments,webLink,bodyPreview`;\nreturn [{ json: { action, limit, telegramChatId, requestType, emailNumber, query, graphUrl: url } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "a7cc1dad-88c5-5289-b33b-43aab197cd56",
+      "name": "Normalize Context Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "b71be050-a87a-5dcc-86e3-e6eaa19419fe",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "list",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        0
+      ],
+      "id": "f3f27e4b-fb0d-524b-9f80-62e54794d5ea",
+      "name": "Action Is List"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.graphUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        720,
+        -120
+      ],
+      "id": "f2a6bca5-5c37-5e44-a709-d500ed77ed58",
+      "name": "Graph List Inbox Emails",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction safeText(value) {\n  return String(value ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction person(mailbox) {\n  const e = mailbox?.emailAddress || mailbox || {};\n  return { name: e.name || '', email: e.address || '' };\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst source = $('Normalize Context Input').item.json;\nconst data = items[0].json || {};\nif (data.error || data.message?.includes?.('Unauthorized')) return fail('WF_EMAIL_LIST_CONTEXT', data.error || data.message);\nconst emails = Array.isArray(data.value) ? data.value : (Array.isArray(data) ? data : []);\nconst numbered = emails.slice(0, source.limit).map((m, idx) => {\n  const sender = person(m.from);\n  return {\n    listNumber: idx + 1,\n    message_id: m.id,\n    conversationId: m.conversationId || '',\n    subject: m.subject || '(no subject)',\n    senderName: sender.name,\n    senderEmail: sender.email,\n    receivedDateTime: m.receivedDateTime || '',\n    isRead: Boolean(m.isRead),\n    hasAttachments: Boolean(m.hasAttachments),\n    webLink: m.webLink || '',\n    bodyPreview: m.bodyPreview || '',\n    createdAt: new Date().toISOString(),\n    telegramChatId: source.telegramChatId\n  };\n});\nconst store = $getWorkflowStaticData('global');\nstore.emailLists = store.emailLists || {};\nstore.emailLists[source.telegramChatId] = { createdAt: new Date().toISOString(), items: numbered };\nconst lines = numbered.map(e => `${e.listNumber}. ${e.senderName || e.senderEmail}\\nSubject: ${e.subject}\\nReceived: ${e.receivedDateTime}\\nRead status: ${e.isRead ? 'Read' : 'Unread'}\\nAttachments: ${e.hasAttachments ? 'Yes' : 'No'}\\nSummary: ${safeText(e.bodyPreview)}`);\nreturn pass(`Emails found: ${numbered.length}\\n${lines.join('\\n\\n')}\\nVerification status: Passed`, { emails: numbered, count: numbered.length });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -120
+      ],
+      "id": "729c6f63-f9cc-575c-805b-271e7e75593a",
+      "name": "Store Numbered Email List"
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction safeText(value) {\n  return String(value ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction person(mailbox) {\n  const e = mailbox?.emailAddress || mailbox || {};\n  return { name: e.name || '', email: e.address || '' };\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst source = $('Normalize Context Input').item.json;\nconst store = $getWorkflowStaticData('global');\nconst list = store.emailLists?.[source.telegramChatId]?.items || [];\nconst found = list.find(e => Number(e.listNumber) === Number(source.emailNumber));\nif (!found) {\n  return pass(`The saved email list expired or Email ${source.emailNumber || ''} was not found. Please list emails again.\\nVerification status: Failed`, { found: false, verificationStatus: 'Failed' });\n}\nreturn pass(`Email Nr. ${found.listNumber} found.\\nSender: ${found.senderName || found.senderEmail}\\nSubject: ${found.subject}\\nReceived: ${found.receivedDateTime}\\nAttachments: ${found.hasAttachments ? 'Yes' : 'No'}\\nMessage ID: ${found.message_id}\\nVerification status: Passed`, { found: true, email: found, message_id: found.message_id, emailNumber: found.listNumber });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        120
+      ],
+      "id": "2fa41a2b-53ae-5b12-88f3-fafd5e32a44e",
+      "name": "Get Saved Email From Context"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Context Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Context Input": {
+      "main": [
+        [
+          {
+            "node": "Action Is List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Is List": {
+      "main": [
+        [
+          {
+            "node": "Graph List Inbox Emails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Saved Email From Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graph List Inbox Emails": {
+      "main": [
+        [
+          {
+            "node": "Store Numbered Email List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "34795afa-062e-567e-aa9d-175b2c593271",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "2fd7dd1facd25d8a",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

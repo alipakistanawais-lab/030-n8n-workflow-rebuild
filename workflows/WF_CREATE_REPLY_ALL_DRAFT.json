@@ -1,0 +1,152 @@
+{
+  "name": "WF_CREATE_REPLY_ALL_DRAFT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "emailNumber"
+            },
+            {
+              "name": "body"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "34647f44-6d06-5672-a75f-ae7070d53795",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json || {};\nconst message_id = String(input.message_id || '').trim();\nconst comment = String(input.body || input.comment || '').trim();\nconst requestBody = JSON.stringify({ comment });\nreturn [{ json: { ...input, message_id, comment, requestBody, graphUrl: `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(message_id)}/createReplyAll` } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "aea976b4-1f20-5916-b193-0d4e4fa572ea",
+      "name": "Prepare Graph Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.graphUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        520,
+        0
+      ],
+      "id": "8e4fe3a8-88c2-514a-a65a-f2d7bd257b58",
+      "name": "Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction safeText(value) {\n  return String(value ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction person(mailbox) {\n  const e = mailbox?.emailAddress || mailbox || {};\n  return { name: e.name || '', email: e.address || '' };\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst input = $('Prepare Graph Request').item.json;\nconst d = items[0].json || {};\nif (d.error || !d.id) return fail('WF_CREATE_REPLY_ALL_DRAFT', d.error || d.message || 'Reply-all draft was not created');\nconst cc = (d.ccRecipients || []).map(r => person(r).email).filter(Boolean).join(', ');\nreturn pass(`Draft created: Yes\\nRecipient: Reply-all recipients from selected email\\nCC if reply-all: ${cc}\\nSubject: ${d.subject || 'Reply all'}\\nDraft link if available: ${d.webLink || ''}\\nEmail sent: No\\nVerification status: Passed`, { draft_id: d.id, message_id: input.message_id, cc, emailSent: false });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "ae7e7dea-9b7f-55e9-848f-9fd9fe411867",
+      "name": "Format Tool Response"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Format Tool Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "359412f9-6b68-5013-93e5-a4938b80be66",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "ab127844d8705534",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

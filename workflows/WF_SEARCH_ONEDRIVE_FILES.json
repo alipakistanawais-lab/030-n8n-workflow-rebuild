@@ -1,0 +1,139 @@
+{
+  "name": "WF_SEARCH_ONEDRIVE_FILES",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "query"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "60df97c8-4407-5ff5-b092-88b5e623bb2a",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json || {};\nconst q = String(input.query || input.file_query || '').replace(/'/g, \"''\").trim();\nreturn [{ json: { ...input, query: q, graphUrl: `https://graph.microsoft.com/v1.0/me/drive/root/search(q='${encodeURIComponent(q)}')?$top=10&$select=id,name,size,webUrl,lastModifiedDateTime,parentReference,file,folder` } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "aea976b4-1f20-5916-b193-0d4e4fa572ea",
+      "name": "Prepare Graph Request"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.graphUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        520,
+        0
+      ],
+      "id": "8e4fe3a8-88c2-514a-a65a-f2d7bd257b58",
+      "name": "Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction safeText(value) {\n  return String(value ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction person(mailbox) {\n  const e = mailbox?.emailAddress || mailbox || {};\n  return { name: e.name || '', email: e.address || '' };\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst data = items[0].json || {};\nif (data.error) return fail('WF_SEARCH_ONEDRIVE_FILES', data.error);\nconst files = (data.value || []).filter(f => f.file).slice(0, 10);\nconst top = files.slice(0, 3).map((f,i)=>`${i+1}. ${f.name}\\nType: file\\nSize: ${f.size || 0}\\nFolder path: ${f.parentReference?.path || ''}\\nLink: ${f.webUrl || ''}`);\nconst ask = files.length > 3 ? '\\nMultiple files found. Please choose one of the top 3.' : '';\nreturn pass(`OneDrive files found: ${files.length}\\n${top.join('\\n\\n')}${ask}\\nVerification status: Passed`, { files, count: files.length });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "ae7e7dea-9b7f-55e9-848f-9fd9fe411867",
+      "name": "Format Tool Response"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Format Tool Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "e2023fdc-6ac2-5796-a9c8-270922561c43",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "7b7cf86b31c45a90",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

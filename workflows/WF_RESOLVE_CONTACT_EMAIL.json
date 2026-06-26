@@ -1,0 +1,77 @@
+{
+  "name": "WF_RESOLVE_CONTACT_EMAIL",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "name"
+            },
+            {
+              "name": "contactName"
+            },
+            {
+              "name": "query"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8d1297e8-46f9-5560-b1bb-790af1ce682a",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst input = items[0].json || {};\nconst raw = String(input.name || input.contactName || input.query || '').toLowerCase().trim();\nconst known = [\n  { names: ['ali', 'ali kabalan', 'kabalan'], displayName: 'Ali Kabalan', email: '' },\n  { names: ['hidar', 'hider', 'hidar aliasghari'], displayName: 'Hidar Aliasghari', email: '' },\n  { names: ['bohdan', 'bohdan dyakunchak'], displayName: 'Bohdan Dyakunchak', email: '' }\n];\nconst hit = known.find(c => c.names.includes(raw));\nif (!hit || !hit.email) return [{ json: { response: 'Please provide this person\\'s email address.\\nVerification status: Failed', resolved: false, contactName: input.name || input.contactName || '', verificationStatus: 'Failed' } }];\nreturn pass(`Contact resolved.\\nName: ${hit.displayName}\\nEmail: ${hit.email}\\nVerification status: Passed`, { resolved: true, contactName: hit.displayName, email: hit.email });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "81c4c78a-b634-5154-89e9-ae33670ef726",
+      "name": "Resolve Strict Known Contact"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Resolve Strict Known Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "fdfc52c3-8f69-5e2e-8895-e5e5f6a1a440",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "5770906b901855f0",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

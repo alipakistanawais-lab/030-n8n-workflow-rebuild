@@ -1,0 +1,86 @@
+{
+  "name": "WF_VIDEO_TRANSCRIPTION",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "fileName"
+            },
+            {
+              "name": "fileSize"
+            },
+            {
+              "name": "source"
+            },
+            {
+              "name": "message_id"
+            },
+            {
+              "name": "attachment_id"
+            },
+            {
+              "name": "drive_file_id"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0b91194c-a0ad-55f1-ac36-f64f2e2c001a",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst input = items[0].json || {};\nconst fileName = String(input.fileName || input.file_name || input.query || '').trim();\nconst size = Number(input.fileSize || input.file_size || 0);\nif (size > 25 * 1024 * 1024) return [{ json: { response: `File name: ${fileName}\\nFile size: ${size} bytes\\nThe video is over 25MB, so transcription was not attempted.\\nVerification status: Failed`, fileName, fileSize: size, verificationStatus: 'Failed' } }];\nreturn [{ json: { response: `File name: ${fileName || 'Unknown'}\\nFile size: ${size || 'Unknown'}\\nVideo transcription is not configured yet.\\nNo action completed.\\nVerification status: Failed`, fileName, fileSize: size, configured: false, verificationStatus: 'Failed' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "618d45f4-42ed-559c-a515-5bbd89cd4e51",
+      "name": "Video Transcription Guard"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Video Transcription Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "e5a24076-bc45-59b9-9c38-2e92f5713152",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "66df744d4d9157ee",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

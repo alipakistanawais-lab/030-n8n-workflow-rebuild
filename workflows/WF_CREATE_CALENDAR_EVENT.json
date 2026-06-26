@@ -1,0 +1,171 @@
+{
+  "name": "WF_CREATE_CALENDAR_EVENT",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "subject"
+            },
+            {
+              "name": "attendeeEmail"
+            },
+            {
+              "name": "attendeeName"
+            },
+            {
+              "name": "startDateTime"
+            },
+            {
+              "name": "endDateTime"
+            },
+            {
+              "name": "timeZone"
+            },
+            {
+              "name": "location"
+            },
+            {
+              "name": "body"
+            },
+            {
+              "name": "telegramChatId"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "95c1d430-1082-558f-abff-c417eca8ed63",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json || {};\nconst subject = String(input.subject || input.title || '').trim();\nconst startDateTime = String(input.startDateTime || '').trim();\nconst endDateTime = String(input.endDateTime || '').trim();\nconst timeZone = input.timeZone || 'Europe/Berlin';\nconst attendees = Array.isArray(input.attendees) ? input.attendees : (input.attendeeEmail ? [{ emailAddress: { address: input.attendeeEmail, name: input.attendeeName || input.attendeeEmail }, type: 'required' }] : []);\nconst requestBody = JSON.stringify({ subject, body: { contentType: 'Text', content: input.body || '' }, start: { dateTime: startDateTime, timeZone }, end: { dateTime: endDateTime, timeZone }, location: { displayName: input.location || '' }, attendees });\nreturn [{ json: { ...input, subject, startDateTime, endDateTime, timeZone, attendees, requestBody, graphUrl: 'https://graph.microsoft.com/v1.0/me/events' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "aea976b4-1f20-5916-b193-0d4e4fa572ea",
+      "name": "Prepare Graph Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.graphUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "outlook.timezone=\"Europe/Berlin\""
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        520,
+        0
+      ],
+      "id": "8e4fe3a8-88c2-514a-a65a-f2d7bd257b58",
+      "name": "Microsoft Graph Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "p8l1D6snXEvhc1aR",
+          "name": "Prod_MsGraph_OAuth2_Hidar"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanError(value) {\n  if (!value) return 'Unknown error';\n  if (typeof value === 'string') return value.slice(0, 600);\n  if (value.message) return String(value.message).slice(0, 600);\n  return JSON.stringify(value).slice(0, 600);\n}\nfunction safeText(value) {\n  return String(value ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction person(mailbox) {\n  const e = mailbox?.emailAddress || mailbox || {};\n  return { name: e.name || '', email: e.address || '' };\n}\nfunction pass(response, extra = {}) {\n  return [{ json: { ...extra, response, verificationStatus: 'Passed' } }];\n}\nfunction fail(tool, error, action='No Microsoft 365 state was changed.') {\n  const msg = cleanError(error);\n  return [{ json: { response: `Tool failed: Yes\\nTool used: ${tool}\\nError message: ${msg}\\nAction taken: ${action}\\nVerification status: Failed`, toolFailed: true, toolUsed: tool, errorMessage: msg, actionTaken: action, verificationStatus: 'Failed' } }];\n}\n\nconst input = $('Prepare Graph Request').item.json;\nconst e = items[0].json || {};\nif (e.error || !e.id) return fail('WF_CREATE_CALENDAR_EVENT', e.error || e.message || 'Calendar event was not created');\nreturn pass(`Calendar event created: Yes\\nTitle: ${e.subject || input.subject}\\nDate/time: ${e.start?.dateTime || input.startDateTime} - ${e.end?.dateTime || input.endDateTime}\\nAttendees: ${(input.attendees || []).map(a=>a.emailAddress?.address).filter(Boolean).join(', ') || 'None'}\\nLocation: ${e.location?.displayName || input.location || ''}\\nLink: ${e.webLink || ''}\\nVerification status: Passed`, { event_id: e.id, webLink: e.webLink || '', timeZone: input.timeZone });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "ae7e7dea-9b7f-55e9-848f-9fd9fe411867",
+      "name": "Format Tool Response"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Microsoft Graph Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft Graph Request": {
+      "main": [
+        [
+          {
+            "node": "Format Tool Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "f47fcc7b-28f5-5acb-87b2-caf44287e467",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "030-office-ai-assistant-clean-local"
+  },
+  "id": "4f00138f64a45879",
+  "tags": [
+    "030-office-ai-assistant",
+    "clean-build"
+  ]
+}

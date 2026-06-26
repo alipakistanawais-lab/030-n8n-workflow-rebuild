@@ -22,6 +22,18 @@ of scope for this build.
   is **not** implemented. Increase the `limit` cap in the `00 Prepare` node or add a `$skip` loop if
   you need deeper history.
 
+## R1. Verify AI tool-node access to Telegram Input Mapper (LIVE TEST)
+After importing into n8n, run the numbered email memory live test to confirm that AI tool node
+expressions referencing `Telegram Input Mapper` resolve correctly during agent-tool runtime.
+The 23 `Tool - *` nodes and the `Window Buffer Memory` use
+`={{ $('Telegram Input Mapper').item.json.telegramChatId }}` to key per-chat memory.
+
+If `telegramChatId` is empty inside tool execution, change the tool input mapping to pass
+`telegramChatId` from the AI Agent input item directly (for example `={{ $json.telegramChatId }}`,
+or inject the chat id into the agent prompt) instead of using the `$('Telegram Input Mapper')`
+reference. Test command: `Do I have new emails?` then `What's in Email 2?` and confirm Email 2
+resolves to the same email shown in the list.
+
 ## 3. Numbered email memory uses n8n workflow static data (CAVEAT)
 - The numbered list is stored per `telegramChatId` in `$getWorkflowStaticData('global')` inside
   `WF_EMAIL_LIST_CONTEXT`.
